@@ -1,4 +1,5 @@
-import hmac, base64, struct, time, argparse, json, hashlib
+#!/usr/bin/env python3
+import sys, hmac, base64, struct, time, argparse, json, hashlib
 from hashlib import md5
 from getpass import getpass
 from Crypto.Cipher import AES
@@ -11,7 +12,11 @@ def get_hotp_data(secret, intervals_no):
   key = base64.b32decode(secret, True)
   msg = struct.pack(">Q", intervals_no)
   h = hmac.new(key, msg, hashlib.sha1).digest()
-  o = ord(h[19]) & 15
+  if sys.version_info < (3, 0):
+    # Python 2 compatibility
+    o = ord(h[19]) & 15
+  else:
+    o = h[19] & 15
   h = struct.unpack(">I", h[o:o+4])[0] & 0x7fffffff
   return h
 
@@ -23,8 +28,8 @@ def get_hotp_token(secret, digits, intervals_no):
 def get_hotp_token_lang(secret, digits, language, intervals_no):
   h = get_hotp_data(secret, intervals_no)
   code = ""
-  for i in xrange(0, digits):
-    code += language[h % len(language)]
+  for i in range(0, digits):
+    code += language[int(h) % len(language)]
     h /= len(language)
   return code
 
@@ -55,7 +60,11 @@ def decrypt(fd, password, key_length=32):
   while not finished:
     chunk, next_chunk = next_chunk, cipher.decrypt(fd.read(1024 * bs))
     if len(next_chunk) == 0:
-      padding_length = ord(chunk[-1])
+      if sys.version_info < (3, 0):
+        # Python 2 compatibility
+        padding_length = ord(chunk[-1])
+      else:
+        padding_length = chunk[-1]
       chunk = chunk[:-padding_length]
       finished = True
     data += str(chunk)
@@ -69,24 +78,44 @@ def handle_service(svc, digits=6):
     while len(secret) < target:
       secret += '='
 
-  if svc.has_key('digits'):
+  if 'digits' in svc:
     digits = svc['digits']
-  if svc.has_key('language'):
+  if 'language' in svc:
     result = get_totp_token(secret, digits, svc['language'])
   else:
     result = get_totp_token(secret, digits)
   return result
+
+def print_codes(services):
+  if len(services) == 1:
+    service = list(services.keys())[0]
+    code, time_left = services[service]
+    sys.stderr.write('%s (%i): ' % (service, time_left))
+    sys.stdout.write('%s' % (code,))
+    sys.stderr.write('\n')
+  else:
+    for service in sorted(services):
+      code, time_left = services[service]
+      sys.stderr.write('%s (%i): %s\n' % (service, time_left, code))
 
 def main(filter_string, password=None):
   if password is None:
     password = getpass(prompt='Password: ', stream=None)
   with open(CONFIG, 'rb') as fd:
     data = decrypt(fd, password)
-  data = json.loads(data)
+  try:
+    if sys.version_info >= (3, 0):
+      # Python 3 compatibility
+      data.replace('\\n', '')
+      data = eval(data).decode('utf-8')
+    data = json.loads(data)
+  except (ValueError, UnicodeDecodeError):
+    sys.exit('Incorrect password')
+  results = {}
   for svc in data:
     if filter_string in svc.lower():
-      code, time_left = handle_service(data[svc])
-      print("%s: %s (%i)" % (svc, code, time_left))
+      results[svc] = handle_service(data[svc])
+  print_codes(results)
   
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(prog='totp generator')
