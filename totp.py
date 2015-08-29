@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import print_function
 import sys, hmac, base64, struct, time, argparse, json, hashlib
 from hashlib import md5
 from getpass import getpass
@@ -87,16 +88,16 @@ def handle_service(svc, digits=6):
   return result
 
 def print_codes(services):
+  # If only one match, make it possible to pipe normally to clipboard manager
   if len(services) == 1:
     service = list(services.keys())[0]
     code, time_left = services[service]
-    sys.stderr.write('%s (%i): ' % (service, time_left))
-    sys.stdout.write('%s' % (code,))
-    sys.stderr.write('\n')
+    print('%s (%i): ' % (service, time_left), end='', file=sys.stderr)
+    print('%s' % (code,))
   else:
     for service in sorted(services):
       code, time_left = services[service]
-      sys.stderr.write('%s (%i): %s\n' % (service, time_left, code))
+      print('%s (%i): %s' % (service, time_left, code))
 
 def main(filter_string, password=None):
   if password is None:
@@ -122,4 +123,7 @@ if __name__ == "__main__":
   parser.add_argument('filter_string', help='Service filter')
   parser.add_argument('-p', '--password', help='Optionally provide password at the commandline')
   args = parser.parse_args()
-  main(args.filter_string, args.password)
+  try:
+    main(args.filter_string, args.password)
+  except KeyboardInterrupt:
+    sys.exit('')
