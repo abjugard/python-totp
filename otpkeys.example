@@ -1,0 +1,17 @@
+{
+    "Google" : {
+        "secret" : "xxxxxxxxxxxxxxxx"
+    },
+    "GitHub" : {
+        "secret" : "xxxxxxxxxxxxxxxx"
+    },
+    "BattleNet" : {
+        "secret" : "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "digits" : 8
+    },
+    "Steam" : {
+        "secret" : "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "digits" : 5,
+        "language" : "23456789BCDFGHJKMNPQRTVWXY"
+    }
+}
