@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import print_function
-import sys, hmac, base64, struct, time, argparse, json, hashlib
-from hashlib import md5
+import sys, hmac, base64, struct, time, argparse, hashlib
+from Crypto.Cipher import AES # PyCrypto from pip
 from getpass import getpass
-from Crypto.Cipher import AES
-from Crypto import Random
 from os.path import expanduser
 
 CONFIG = expanduser("~") + '/.config/otpkeys.enc'
@@ -46,7 +44,7 @@ def derive_key_and_iv(password, salt, key_length, iv_length):
   d = d_i = b''
   while len(d) < key_length + iv_length:
     pw_bytes = password.encode('utf-8')
-    d_i = md5(d_i + pw_bytes + salt).digest()
+    d_i = hashlib.md5(d_i + pw_bytes + salt).digest()
     d += d_i
   return d[:key_length], d[key_length:key_length+iv_length]
 
@@ -55,9 +53,8 @@ def decrypt(fd, password, key_length=32):
   salt = fd.read(bs)[len('Salted__'):]
   key, iv = derive_key_and_iv(password, salt, key_length, bs)
   cipher = AES.new(key, AES.MODE_CBC, iv)
-  next_chunk = ''
+  chunks = next_chunk = b''
   finished = False
-  data = ''
   while not finished:
     chunk, next_chunk = next_chunk, cipher.decrypt(fd.read(1024 * bs))
     if len(next_chunk) == 0:
@@ -68,8 +65,8 @@ def decrypt(fd, password, key_length=32):
         padding_length = chunk[-1]
       chunk = chunk[:-padding_length]
       finished = True
-    data += str(chunk)
-  return data
+    chunks += chunk
+  return chunks
 
 def handle_service(svc, digits=6):
   # Format the secret properly for b32decode later
@@ -92,26 +89,22 @@ def print_codes(services):
   if len(services) == 1:
     service = list(services.keys())[0]
     code, time_left = services[service]
-    print('%s (%i): ' % (service, time_left), end='', file=sys.stderr)
-    print('%s' % (code,))
+    print('%s (%is): ' % (service, time_left), end='', file=sys.stderr)
+    print(code, end='')
   else:
     for service in sorted(services):
       code, time_left = services[service]
-      print('%s (%i): %s' % (service, time_left, code))
+      print('%s (%is): %s' % (service, time_left, code))
 
 def main(filter_string, password=None):
   if password is None:
     password = getpass(prompt='Password: ', stream=None)
   with open(CONFIG, 'rb') as fd:
-    data = decrypt(fd, password)
+    raw = decrypt(fd, password)
   try:
-    if sys.version_info >= (3, 0):
-      # Python 3 compatibility
-      data.replace('\\n', '')
-      data = eval(data).decode('utf-8')
-    data = json.loads(data)
+    data = eval(raw.decode('utf-8'))
   except (ValueError, UnicodeDecodeError):
-    sys.exit('Incorrect password')
+    sys.exit('Bad password')
   results = {}
   for svc in data:
     if filter_string in svc.lower():
