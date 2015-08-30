@@ -11,11 +11,7 @@ def get_hotp_data(secret, intervals_no):
   key = base64.b32decode(secret, True)
   msg = struct.pack(">Q", intervals_no)
   h = hmac.new(key, msg, hashlib.sha1).digest()
-  if sys.version_info < (3, 0):
-    # Python 2 compatibility
-    o = ord(h[19]) & 15
-  else:
-    o = h[19] & 15
+  o = ord(h[-1:]) & 15
   h = struct.unpack(">I", h[o:o+4])[0] & 0x7fffffff
   return h
 
@@ -32,7 +28,7 @@ def get_hotp_token_lang(secret, digits, language, intervals_no):
     h /= len(language)
   return code
 
-def get_totp_token(secret, digits, language=None, seconds=30):
+def get_totp_token(secret, digits, seconds=30, language=None):
   t = int(time.time())
   if language is None:
     code = get_hotp_token(secret, digits, intervals_no=t//seconds)
@@ -58,30 +54,30 @@ def decrypt(fd, password, key_length=32):
   while not finished:
     chunk, next_chunk = next_chunk, cipher.decrypt(fd.read(1024 * bs))
     if len(next_chunk) == 0:
-      if sys.version_info < (3, 0):
-        # Python 2 compatibility
-        padding_length = ord(chunk[-1])
-      else:
-        padding_length = chunk[-1]
+      padding_length = ord(chunk[-1:])
       chunk = chunk[:-padding_length]
       finished = True
     chunks += chunk
   return chunks
 
-def handle_service(svc, digits=6):
-  # Format the secret properly for b32decode later
+def handle_service(svc):
+  # Set calculation variables for HOTP token
+  digits = 6
+  seconds = 30
+  language = None
+  # Format the secret properly for b32decode
   secret = svc['secret'].replace(' ', '').upper()
   if len(secret) not in [16, 32]:
     target = 16 if (len(secret) < 16) else 32
     while len(secret) < target:
       secret += '='
-
   if 'digits' in svc:
     digits = svc['digits']
+  if 'seconds' in svc:
+    seconds = svc['seconds']
   if 'language' in svc:
-    result = get_totp_token(secret, digits, svc['language'])
-  else:
-    result = get_totp_token(secret, digits)
+    language = svc['language']
+  result = get_totp_token(secret, digits, seconds, language)
   return result
 
 def print_codes(services):
@@ -89,12 +85,23 @@ def print_codes(services):
   if len(services) == 1:
     service = list(services.keys())[0]
     code, time_left = services[service]
-    print('%s (%is): ' % (service, time_left), end='', file=sys.stderr)
-    print(code, end='')
+    if not sys.stdout.isatty():
+      print('%s (%is) ' % (service, time_left), file=sys.stderr)
+    print(code)
   else:
+    times = set()
+    for service in sorted(services):
+      _, time_left = services[service]
+      times.add(time_left)
+    synched = len(times) == 1
     for service in sorted(services):
       code, time_left = services[service]
-      print('%s (%is): %s' % (service, time_left, code))
+      if synched:
+        print('%s: %s' % (service, code))
+      else:
+        print('%s (%is): %s' % (service, time_left, code))
+    if synched:
+      print('Time left: %i seconds' % (time_left,))
 
 def main(filter_string, password=None):
   if password is None:
@@ -107,14 +114,17 @@ def main(filter_string, password=None):
     sys.exit('Bad password')
   results = {}
   for svc in data:
-    if filter_string in svc.lower():
+    if filter_string.replace('*','').lower() in svc.lower():
       results[svc] = handle_service(data[svc])
   print_codes(results)
   
 if __name__ == "__main__":
-  parser = argparse.ArgumentParser(prog='totp generator')
-  parser.add_argument('filter_string', help='Service filter')
-  parser.add_argument('-p', '--password', help='Optionally provide password at the commandline')
+  parser = argparse.ArgumentParser(description=
+      '''RFC6238-compliant TOTP-token generator''')
+  parser.add_argument('filter_string',
+      help='Service filter')
+  parser.add_argument('-p', '--password',
+      help='Optionally provide password at the commandline')
   args = parser.parse_args()
   try:
     main(args.filter_string, args.password)
