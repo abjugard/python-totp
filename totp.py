@@ -122,7 +122,9 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser(description=
       '''RFC6238-compliant TOTP-token generator''')
   parser.add_argument('filter_string',
-      help='Service filter')
+      help='Service filter',
+      default='*',
+      nargs='?')
   parser.add_argument('-p', '--password',
       help='Optionally provide password at the commandline')
   args = parser.parse_args()
