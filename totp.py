@@ -1,30 +1,27 @@
 #!/usr/bin/env python3
-from __future__ import print_function
-import sys, hmac, base64, struct, time, argparse, hashlib, math
+from __future__ import print_function, division
+import sys, hmac, base64, struct, argparse, hashlib
+from math import ceil
+from time import time
 from Crypto.Cipher import AES # PyCrypto from pip
 from getpass import getpass
 from os.path import expanduser
 
-CONFIG = expanduser("~") + '/.config/otpkeys.enc'
+SECRETS = expanduser('~/.config/otpkeys.enc')
+EPOCH = int(time())
 
-def get_hotp_data(secret, intervals_no):
-  try:
-    key = base64.b32decode(secret, True)
-  except:
-    target = math.ceil(len(secret)/16)*16
-    secret += '='*(target-len(secret))
-    try:
-      key = base64.b32decode(secret, True)
-    except:
-      print('Can\'t decode Base32-secret, giving up')
-  msg = struct.pack(">Q", intervals_no)
+def hotp_data(secret, intervals_no):
+  target = ceil(len(secret)/8)*8
+  secret += '='*int(target-len(secret))
+  key = base64.b32decode(secret, casefold=True)
+  msg = struct.pack('>Q', intervals_no)
   h = hmac.new(key, msg, hashlib.sha1).digest()
   o = ord(h[-1:]) & 15
-  h = struct.unpack(">I", h[o:o+4])[0] & 0x7fffffff
+  h = struct.unpack('>I', h[o:o+4])[0] & 0x7fffffff
   return h
 
-def get_hotp_token(secret, digits, intervals_no, language=None):
-  h = get_hotp_data(secret, intervals_no)
+def totp_code(secret, digits, seconds=30, language=None):
+  h = hotp_data(secret, EPOCH//seconds)
   code = str('')
   if language is None:
     c = str(h % (10 ** digits))
@@ -33,12 +30,7 @@ def get_hotp_token(secret, digits, intervals_no, language=None):
     for i in range(0, digits):
       code += language[int(h) % len(language)]
       h /= len(language)
-  return code
-
-def get_totp_token(secret, digits, seconds=30, language=None):
-  t = int(time.time())
-  code = get_hotp_token(secret, digits, t//seconds, language)
-  return code, -(t % seconds - seconds)
+  return code, -(EPOCH % seconds - seconds)
 
 def handle_service(svc):
   # Set calculation variables for HOTP token
@@ -53,34 +45,44 @@ def handle_service(svc):
     seconds = svc['seconds']
   if 'language' in svc:
     language = svc['language']
-  result = get_totp_token(secret, digits, seconds, language)
+  result = totp_code(secret, digits, seconds, language)
   return result
 
 def print_codes(services):
   # If only one match, make it possible to pipe normally to clipboard manager
-  if len(services) == 1:
+  if len(services) == 1 and not sys.stdout.isatty():
     service = list(services.keys())[0]
     code, time_left = services[service]
-    if not sys.stdout.isatty():
-      print('%s (%is) ' % (service, time_left), file=sys.stderr)
-    print(code)
+    print('%s (%is) ' % (service, time_left), file=sys.stderr, end='', flush=True)
+    print(code, end='', flush=True)
+    # print('', file=sys.stderr)
   else:
-    times = set()
-    longest = 0
+    times = {}
+    longest = {}
     for service in services:
-      longest = len(service) if len(service) > longest else longest
       _, time_left = services[service]
-      times.add(time_left)
-    synched = len(times) == 1
-    for service in sorted(services):
-      code, time_left = services[service]
-      if synched:
-        spaces = longest - len(service)
-        print('%s%s %s' % (' '*spaces, service, code))
-      else:
-        print('%s (%is): %s' % (service, time_left, code))
-    if synched:
-      print('Time left: %i seconds' % (time_left,))
+      if time_left not in longest:
+        longest[time_left] = 0
+      longest[time_left] = len(service) if len(service) > longest[time_left] else longest[time_left]
+      if time_left not in times:
+        times[time_left] = []
+      times[time_left].append(service)
+    first = True
+    for time in sorted(times):
+      multiple = not len(times[time]) == 1
+      if multiple:
+        if first:
+          first = False
+        else:
+          print('')
+        print('Time left: %i seconds' % time_left)
+      for service in sorted(times[time]):
+        code, _ = services[service]
+        if multiple:
+          spaces = longest[time] - len(service) + 1
+          print('%s%s %s' % (' '*spaces, service, code))
+        else:
+          print('%s (%is): %s' % (service, time, code))
 
 def derive_key_and_iv(password, salt, key_length, iv_length):
   d = d_i = b''
@@ -106,10 +108,26 @@ def decrypt(fd, password, key_length=32):
     chunks += chunk
   return chunks
 
+def fuzzysearch(needle, haystack):
+  hlen = len(haystack)
+  nlen = len(needle)
+  if nlen > hlen:
+    return False
+  if nlen == hlen:
+    return needle == haystack
+  if nlen == 0 or hlen == 0:
+    return True
+  position = haystack.find(needle[0])
+  if position >= 0:
+    return fuzzysearch(needle[1:], haystack[position+1:])
+  else:
+    return False
+
 def main(filter_string, password=None):
   if password is None:
     password = getpass(prompt='Password: ', stream=None)
-  with open(CONFIG, 'rb') as fd:
+    print('', end='\033[F\033[K')
+  with open(SECRETS, 'rb') as fd:
     raw = decrypt(fd, password)
   try:
     data = eval(raw.decode('utf-8'))
@@ -117,12 +135,12 @@ def main(filter_string, password=None):
     sys.exit('Bad password')
   results = {}
   for svc in data:
-    if filter_string.replace('*','').lower() in svc.lower():
+    if fuzzysearch(filter_string.replace('*','').lower(), svc.lower()):
       if 'secret' in data[svc]:
         results[svc] = handle_service(data[svc])
   print_codes(results)
-  
-if __name__ == "__main__":
+
+if __name__ == '__main__':
   parser = argparse.ArgumentParser(description=
       '''RFC6238-compliant TOTP-token generator''')
   parser.add_argument('filter_string',
