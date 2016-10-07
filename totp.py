@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 from __future__ import print_function, division
-import sys, hmac, base64, struct, argparse, hashlib
-from math import ceil
-from time import time
+import sys, hmac, base64, struct, argparse, hashlib, re, time, math
 from Crypto.Cipher import AES # PyCrypto from pip
 from getpass import getpass
 from os.path import expanduser
 
 SECRETS = expanduser('~/.config/otpkeys.enc')
-EPOCH = int(time())
+EPOCH = int(time.time())
+B32CHARS = re.compile(r'[^A-Z2-7]')
 
 def hotp_data(secret, intervals_no):
-  target = ceil(len(secret)/8)*8
+  target = math.ceil(len(secret)/8)*8
   secret += '='*int(target-len(secret))
-  key = base64.b32decode(secret, casefold=True)
+  key = base64.b32decode(secret)
   msg = struct.pack('>Q', intervals_no)
   h = hmac.new(key, msg, hashlib.sha1).digest()
   o = ord(h[-1:]) & 15
@@ -38,7 +37,7 @@ def handle_service(svc):
   seconds = 30
   language = None
   # Format the secret properly for b32decode
-  secret = svc['secret'].replace(' ', '').upper()
+  secret = B32CHARS.sub('', svc['secret'].upper())
   if 'digits' in svc:
     digits = svc['digits']
   if 'seconds' in svc:
