@@ -64,14 +64,15 @@ def print_codes(services):
       _, time_left = services[service]
       if time_left not in longest:
         longest[time_left] = 0
-      longest[time_left] = len(service) if len(service) > longest[time_left] else longest[time_left]
+      if len(service) > longest[time_left]:
+        longest[time_left] = len(service)
       if time_left not in times:
         times[time_left] = []
       times[time_left].append(service)
     first = True
     for time in sorted(times):
-      multiple = not len(times[time]) == 1
-      if multiple:
+      multiple_services = len(times[time]) > 1
+      if multiple_services:
         if first:
           first = False
         else:
@@ -79,7 +80,7 @@ def print_codes(services):
         print('Time left: %i seconds' % time_left)
       for service in sorted(times[time]):
         code, _ = services[service]
-        if multiple:
+        if multiple_services:
           spaces = longest[time] - len(service) + 1
           print('%s%s %s' % (' '*spaces, service, code))
         else:
