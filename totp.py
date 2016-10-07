@@ -52,8 +52,10 @@ def print_codes(services):
   if len(services) == 1 and not sys.stdout.isatty():
     service = list(services.keys())[0]
     code, time_left = services[service]
-    print('%s (%is) ' % (service, time_left), file=sys.stderr, end='', flush=True)
-    print(code, end='', flush=True)
+    print('%s (%is) ' % (service, time_left), end='', file=sys.stderr)
+    sys.stderr.flush()
+    print(code, end='')
+    sys.stdout.flush()
     # print('', file=sys.stderr)
   else:
     times = {}
@@ -108,24 +110,22 @@ def decrypt(fd, password, key_length=32):
   return chunks
 
 def fuzzysearch(needle, haystack):
-  hlen = len(haystack)
   nlen = len(needle)
-  if nlen > hlen:
+  hlen = len(haystack)
+  if nlen > hlen or hlen == 0:
     return False
   if nlen == hlen:
     return needle == haystack
-  if nlen == 0 or hlen == 0:
+  if nlen == 0:
     return True
-  position = haystack.find(needle[0])
-  if position >= 0:
-    return fuzzysearch(needle[1:], haystack[position+1:])
-  else:
-    return False
+  pos = haystack.find(needle[0])
+  return fuzzysearch(needle[1:], haystack[pos+1:]) if pos >= 0 else False
 
 def main(filter_string, password=None):
   if password is None:
     password = getpass(prompt='Password: ', stream=None)
-    print('', end='\033[F\033[K')
+    print('', end='\033[F\033[K', file=sys.stderr)
+    sys.stderr.flush()
   with open(SECRETS, 'rb') as fd:
     raw = decrypt(fd, password)
   try:
