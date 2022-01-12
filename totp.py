@@ -87,11 +87,8 @@ def print_codes(services):
           print('%s (%is): %s' % (service, time, code))
 
 def derive_key_and_iv(password, salt, key_length, iv_length):
-  d = d_i = b''
-  while len(d) < key_length + iv_length:
-    pw_bytes = password.encode('utf-8')
-    d_i = hashlib.md5(d_i + pw_bytes + salt).digest()
-    d += d_i
+  pw_bytes = password.encode('utf-8')
+  d = hashlib.pbkdf2_hmac('sha256', pw_bytes, salt, 10000, 48)
   return d[:key_length], d[key_length:key_length+iv_length]
 
 def decrypt(fd, password, key_length=32):
